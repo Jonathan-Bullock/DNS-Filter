@@ -35,14 +35,16 @@ Added a certutil exit code check so failed imports are caught.
 V7
 Updating SSL/Certificates since I got an alert that vendor has a new Certificate that is used for both standard and MSP and MSP client organizations
 KB Link: https://help.dnsfilter.com/hc/en-us/articles/1500008110241-Install-SSL-TLS-certificates-to-display-a-Block-Page-on-HTTPS-based-websites
+V7.2
+With the addition of the G1 Certificate finding that the file name doesn't match other fields so updated to use certificate friendly name field.
 -Jonathan 11/24/2026
 #>
 
 # Function to check and install all DNSFilter Windows related Certificates 
 function Install-DNSFilterAndNetAlertsCertificates {
     $certUrls = @{
-        "DNSFilter" = "https://app.dnsfilter.com/certs/DNSFilter.cer" #Used when a site isn't authenticated
-        "NetAlerts" = "https://app.dnsfilter.com/certs/NetAlerts.cer" #Used for MSP authenticated sites
+        "DNSFilter"    = "https://app.dnsfilter.com/certs/DNSFilter.cer"    #Used when a site isn't authenticated
+        "NetAlerts"    = "https://app.dnsfilter.com/certs/NetAlerts.cer"    #Used for MSP authenticated sites
         "DNSFilter-G1" = "https://app.dnsfilter.com/certs/DNSFilter-G1.cer" #Used for all site types added November 2026
     }
     $success = $true
@@ -50,8 +52,8 @@ function Install-DNSFilterAndNetAlertsCertificates {
     foreach ($certName in $certUrls.Keys) {
         $certFile = ".\$certName.cer"
 
-        # Check if the certificate is already in the Root store
-        if (Get-ChildItem -Path Cert:\LocalMachine\Root | Where-Object { $_.Subject -like "*$certName*" }) {
+        # Friendly Name is the same as the key name, matched exactly
+        if (Get-ChildItem -Path Cert:\LocalMachine\Root | Where-Object { $_.FriendlyName -eq $certName }) {
             Write-Host -BackgroundColor Green "Verified $certName Cert is already installed"
             continue
         }
@@ -62,9 +64,12 @@ function Install-DNSFilterAndNetAlertsCertificates {
             Start-Sleep -Seconds 5
 
             Write-Host "Importing $certName certificate..."
-            certutil -addstore -enterprise -f "Root" $certFile | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "certutil exit code $LASTEXITCODE" }
+            $imported = Import-Certificate -FilePath $certFile -CertStoreLocation Cert:\LocalMachine\Root -ErrorAction Stop
+            $imported.FriendlyName = $certName
 
+            if (-not (Get-ChildItem -Path Cert:\LocalMachine\Root | Where-Object { $_.FriendlyName -eq $certName })) {
+                throw "Friendly Name '$certName' not found in Root store after import"
+            }
             Write-Host -BackgroundColor Green "$certName Certificate successfully imported"
         } catch {
             Write-Host -BackgroundColor Red "Failed to install the $certName certificate: $_"
@@ -125,5 +130,6 @@ if ($BlockedCount -gt 0) {
     $udf = "False"
 }
 
-Ninja-Property-Set securityDnsDnsfilterComplianceStatus $udf
+#Ninja one Specific command to set the UDF value.
+#Ninja-Property-Set DnsDnsfilterStatus $udf
 Write-Host "Security-DNSFilterCategoryStatus = $udf (True = one or more categories blocked; False = none blocked)"
